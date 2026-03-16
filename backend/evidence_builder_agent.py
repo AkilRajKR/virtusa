@@ -27,7 +27,9 @@ def validate_evidence(clinical_data: Dict[str, Any], raw_text: str) -> Dict[str,
     {{
      "diagnosis_supported": true or false,
      "treatment_supported": true or false,
-     "missing_documents": ["list of what is missing if unsupported, otherwise empty"]
+     "evidence_score": 0 to 100,
+     "missing_documents": ["list of what is missing if unsupported, otherwise empty"],
+     "citations": ["List of specific quotes from the medical text that prove the claims"]
     }}
     
     Do not include any Markdown formatting (like `json) in your output.

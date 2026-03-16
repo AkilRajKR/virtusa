@@ -11,6 +11,7 @@ load_dotenv()
 from clinical_reader_agent import extract_clinical_data
 from evidence_builder_agent import validate_evidence
 from policy_intelligence_agent import compare_against_policy
+from supabase_config import save_analysis_record, upload_file_to_storage
 
 app = FastAPI(title="AI Prior Authorization System")
 
@@ -26,7 +27,7 @@ app.add_middleware(
 logging.basicConfig(level=logging.INFO)
 
 @app.post("/api/analyze")
-async def analyze_document(file: UploadFile = File(...)):
+async def analyze_document(file: UploadFile = File(...), user_id: str = "anonymous"):
     if not file.filename.endswith(".pdf"):
         raise HTTPException(status_code=400, detail="Only PDF files are supported")
         
@@ -62,7 +63,7 @@ async def analyze_document(file: UploadFile = File(...)):
             approval_status = "APPROVED"
             confidence_score = 85 + min(10, max(0, 10 - len(missing_info))) # Randomish range 85-95
             
-        return {
+        final_result = {
             "approval_status": approval_status,
             "confidence_score": confidence_score,
             "missing_information": missing_info,
@@ -73,6 +74,27 @@ async def analyze_document(file: UploadFile = File(...)):
                 "policy_data": policy_data
             }
         }
+        
+        # 5. Persist to Supabase
+        # Upload file to storage
+        storage_path = upload_file_to_storage(user_id, file.filename, content)
+        logging.info(f"File uploaded to storage: {storage_path}")
+        
+        # Save analysis history
+        history_res = save_analysis_record(
+            user_id=user_id,
+            filename=file.filename,
+            approval_status=approval_status,
+            confidence_score=confidence_score,
+            patient_name=clinical_data.get("patient_name", "Unknown"),
+            result_data=final_result
+        )
+        if history_res:
+            logging.info(f"Analysis record successfully registered for user {user_id}")
+        else:
+            logging.error(f"Failed to register analysis record for user {user_id}")
+
+        return final_result
         
     except Exception as e:
         logging.error(f"Error processing document: {e}")

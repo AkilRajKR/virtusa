@@ -15,11 +15,20 @@ def extract_clinical_data(text: str) -> Dict[str, Any]:
     
     Output JSON format MUST be exactly:
     {{
-      "patient_name": "Full Name or Unknown",
-      "diagnosis": "Primary diagnosis",
-      "treatment": "Proposed or actual treatment",
-      "dates": ["YYYY-MM-DD", ...],
-      "doctor_notes": "Summary of doctor's notes"
+      "patient_name": "Full Name",
+      "patient_id": "ID String (e.g. MRN-123)",
+      "dob": "YYYY-MM-DD",
+      "gender": "Male/Female/Other",
+      "facility_name": "Hospital/Clinic Name",
+      "requesting_provider": "Doctor Name",
+      "diagnosis": "Primary medical diagnosis",
+      "treatment": "Proposed procedure or medication",
+      "icd_codes": ["code1", "code2"],
+      "cpt_codes": ["code1", "code2"],
+      "dates": ["YYYY-MM-DD"],
+      "doctor_notes": "Concise summary",
+      "clinical_rationale": "Comprehensive breakdown of the medical necessity as stated in the text.",
+      "risk_factors": ["List of identified patient risks"]
     }}
     
     Do not include any Markdown formatting (like `json) in your output, just the raw JSON string.
@@ -45,8 +54,17 @@ def extract_clinical_data(text: str) -> Dict[str, Any]:
         # Return fallback structured data
         return {
             "patient_name": "Unknown",
+            "patient_id": "N/A",
+            "dob": "Unknown",
+            "gender": "Unknown",
+            "facility_name": "Unknown",
+            "requesting_provider": "Unknown",
             "diagnosis": "Could not extract",
             "treatment": "Could not extract",
+            "icd_codes": [],
+            "cpt_codes": [],
             "dates": [],
-            "doctor_notes": "Extraction failed"
+            "doctor_notes": "Extraction failed",
+            "clinical_rationale": "Extraction failed",
+            "risk_factors": []
         }

@@ -1,61 +1,44 @@
-import React, { createContext, useContext, useState } from 'react';
+import React, { createContext, useContext, useEffect, useState } from 'react';
+import { supabase } from '../lib/supabaseClient';
 
 const AuthContext = createContext(null);
 
-const MOCK_USERS = {
-    doctor: {
-        id: 1,
-        name: 'Dr. Sarah Mitchell',
-        role: 'doctor',
-        email: 'dr.mitchell@hospital.com',
-        avatar: 'https://api.dicebear.com/7.x/avataaars/svg?seed=doctor',
-        department: 'Orthopedics'
-    },
-    reviewer: {
-        id: 2,
-        name: 'James Carter',
-        role: 'reviewer',
-        email: 'j.carter@bluecross.com',
-        avatar: 'https://api.dicebear.com/7.x/avataaars/svg?seed=reviewer',
-        department: 'Claims Review'
-    },
-    admin: {
-        id: 3,
-        name: 'Lisa Thompson',
-        role: 'admin',
-        email: 'l.thompson@hospital.com',
-        avatar: 'https://api.dicebear.com/7.x/avataaars/svg?seed=admin',
-        department: 'Hospital Administration'
-    }
-};
-
 export const AuthProvider = ({ children }) => {
-    const [user, setUser] = useState(() => {
-        try {
-            const stored = localStorage.getItem('mock_user');
-            return stored ? JSON.parse(stored) : null;
-        } catch {
-            return null;
-        }
-    });
+    const [user, setUser] = useState(null);
+    const [loading, setLoading] = useState(true);
 
-    const login = (role) => {
-        const mockUser = MOCK_USERS[role] || MOCK_USERS.doctor;
-        setUser(mockUser);
-        localStorage.setItem('mock_user', JSON.stringify(mockUser));
-        return mockUser;
+    useEffect(() => {
+        // Check active session
+        supabase.auth.getSession().then(({ data: { session } }) => {
+            setUser(session?.user ?? null);
+            setLoading(false);
+        });
+
+        // Listen for changes on auth state
+        const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+            setUser(session?.user ?? null);
+            setLoading(false);
+        });
+
+        return () => subscription.unsubscribe();
+    }, []);
+
+    const loginWithGoogle = async () => {
+        const { error } = await supabase.auth.signInWithOAuth({
+            provider: 'google'
+        });
+        if (error) throw error;
     };
 
-    const logout = () => {
-        setUser(null);
-        localStorage.removeItem('mock_user');
+    const logout = async () => {
+        await supabase.auth.signOut();
     };
 
     const isAuthenticated = !!user;
 
     return (
-        <AuthContext.Provider value={{ user, isAuthenticated, loading: false, login, logout }}>
-            {children}
+        <AuthContext.Provider value={{ user, isAuthenticated, loading, loginWithGoogle, logout }}>
+            {!loading && children}
         </AuthContext.Provider>
     );
 };

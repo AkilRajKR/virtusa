@@ -29,8 +29,10 @@ def compare_against_policy(clinical_data: Dict[str, Any], evidence_data: Dict[st
     Output JSON format MUST be exactly:
     {{
      "policy_match": true or false,
-     "violations": ["list of policy rules violated, if any"],
-     "coverage_status": "Covered" or "Not Covered"
+     "violations": ["list of policy rules violated"],
+     "coverage_status": "Covered" or "Not Covered",
+     "priority_level": "High/Medium/Low",
+     "medical_necessity_rationale": "Detailed explanation of why this does or does not meet the necessary clinical criteria."
     }}
     
     Do not include any Markdown formatting (like `json) in your output.

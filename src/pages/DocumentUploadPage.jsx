@@ -4,9 +4,11 @@ import { GlassCard } from '../components/ui/GlassCard';
 import { Button } from '../components/ui/Button';
 import { UploadCloud, File, AlertTriangle, Activity, Search, ShieldCheck, CheckCircle2 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
+import { useAuth } from '../context/AuthContext';
 
 export default function DocumentUploadPage() {
     const navigate = useNavigate();
+    const { user } = useAuth();
     const [file, setFile] = useState(null);
     const [isProcessing, setIsProcessing] = useState(false);
     const [currentStep, setCurrentStep] = useState(0);
@@ -30,7 +32,7 @@ export default function DocumentUploadPage() {
 
         try {
             // Start the actual backend fetch while we play the animation
-            const responsePromise = fetch('http://localhost:8000/api/analyze', {
+            const responsePromise = fetch(`http://localhost:8000/api/analyze?user_id=${user.id}`, {
                 method: 'POST',
                 body: formData,
             });
