@@ -1,7 +1,6 @@
 /**
  * SureCare AI — API Service Layer
  * All backend API interactions in one place.
- * Supports hybrid data architecture with document management.
  */
 import api from './api';
 
@@ -17,11 +16,10 @@ const surecareService = {
         return res.data;
     },
 
-    // ── Upload (Enhanced — multi-format) ────────────────
-    async uploadDocument(file, authId = null, onProgress) {
+    // ── Upload ──────────────────────────────────────────
+    async uploadDocument(file, onProgress) {
         const formData = new FormData();
         formData.append('file', file);
-        if (authId) formData.append('auth_id', authId);
         const res = await api.post('/api/upload', formData, {
             headers: { 'Content-Type': 'multipart/form-data' },
             onUploadProgress: (e) => {
@@ -30,29 +28,6 @@ const surecareService = {
                 }
             },
         });
-        return res.data;
-    },
-
-    // ── Process (OCR + Structuring) ─────────────────────
-    async processDocument(documentId) {
-        const res = await api.post('/api/process', { document_id: documentId });
-        return res.data;
-    },
-
-    // ── Reprocess (Re-run AI pipeline) ──────────────────
-    async reprocessAuth(authId) {
-        const res = await api.post('/api/reprocess', { auth_id: authId });
-        return res.data;
-    },
-
-    // ── Documents ───────────────────────────────────────
-    async getDocuments(authId) {
-        const res = await api.get(`/api/documents/${authId}`);
-        return res.data;
-    },
-
-    async verifyDocument(documentId) {
-        const res = await api.post('/api/documents/verify', { document_id: documentId });
         return res.data;
     },
 

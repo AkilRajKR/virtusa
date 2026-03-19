@@ -1,7 +1,6 @@
 """
 SureCare AI — Pydantic Models
 Request/Response schemas for all API endpoints.
-Supports hybrid data architecture with document management.
 """
 from pydantic import BaseModel, Field
 from typing import Optional, List, Dict, Any
@@ -30,52 +29,6 @@ class UploadResponse(BaseModel):
     text_preview: str
     page_count: int
     character_count: int
-
-class UploadResponseV2(BaseModel):
-    """Enhanced upload response with storage and OCR info."""
-    document_id: int
-    auth_id: str
-    filename: str
-    file_url: str
-    file_type: str
-    file_size_bytes: int
-    ocr_text_preview: str
-    ocr_text_length: int
-    structured_data: Optional[Dict[str, Any]] = None
-    verified: bool = False
-    created_at: str = ""
-
-# ── Document Management ────────────────────────────────────
-class ProcessRequest(BaseModel):
-    document_id: int
-
-class ProcessResponse(BaseModel):
-    document_id: int
-    auth_id: str
-    ocr_text_preview: str
-    ocr_text_length: int
-    structured_data: Optional[Dict[str, Any]] = None
-    status: str = "processed"
-
-class ReprocessRequest(BaseModel):
-    auth_id: str
-
-class DocumentResponse(BaseModel):
-    document_id: int
-    auth_id: Optional[str] = None
-    filename: str
-    file_url: str
-    file_type: str
-    file_size_bytes: int
-    ocr_text_preview: str = ""
-    structured_data: Optional[Dict[str, Any]] = None
-    verified: bool = False
-    uploaded_by: int
-    uploader_role: str
-    created_at: str = ""
-
-class VerifyDocumentRequest(BaseModel):
-    document_id: int
 
 # ── Analysis ────────────────────────────────────────────────
 class AnalyzeRequest(BaseModel):

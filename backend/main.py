@@ -1,7 +1,6 @@
 """
 SureCare AI — Main Application & REST API Routes
-FastAPI orchestrator with JWT auth, role-based access, pipeline execution,
-document management, OCR processing, and Supabase integration.
+FastAPI orchestrator with JWT auth, role-based access, pipeline execution, and all endpoints.
 """
 import os
 import io
@@ -22,12 +21,11 @@ from pypdf import PdfReader
 from config import (
     JWT_SECRET, JWT_ALGORITHM, JWT_EXPIRY_HOURS, UPLOAD_DIR,
     APP_NAME, APP_VERSION, CORS_ORIGINS, VALID_ROLES,
-    ROLE_PATIENT, ROLE_DOCTOR, ROLE_INSURANCE, ROLE_ADMIN,
-    ALLOWED_EXTENSIONS, MAX_FILE_SIZE_MB,
+    ROLE_DOCTOR, ROLE_INSURANCE, ROLE_ADMIN,
 )
 from database import (
     init_db, get_db, SessionLocal, User, Authorization, AuditLog,
-    LearningRecord, Document, AgentLog, pwd_context,
+    LearningRecord, pwd_context,
 )
 from models import (
     LoginRequest, RegisterRequest, AuthResponse,
@@ -36,7 +34,6 @@ from models import (
     SubmitRequest, SubmitResponse,
     AppealRequest, AppealResponse,
     DashboardMetrics, InsuranceDecisionRequest,
-    ProcessRequest, ReprocessRequest, VerifyDocumentRequest,
 )
 from clinical_reader_agent import extract_clinical_data, validate_clinical_completeness
 from evidence_builder_agent import validate_evidence
@@ -46,11 +43,6 @@ from submission_agent import generate_fhir_bundle
 from appeal_agent import generate_appeal
 from fhir_simulator import simulate_claim_response, simulate_coverage_eligibility
 from audit_trail import log_agent_event, get_audit_logs, build_audit_trail_for_auth
-from document_service import (
-    process_document, get_documents_for_auth, verify_document,
-    get_combined_text_for_auth, get_combined_structured_data,
-)
-from ocr_service import extract_text, structure_ocr_output
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 logger = logging.getLogger("surecare")
@@ -70,7 +62,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(
     title=APP_NAME,
     version=APP_VERSION,
-    description="AI-Driven Prior Authorization System with Multi-Agent Pipeline & Hybrid Data Architecture",
+    description="AI-Driven Prior Authorization System with Multi-Agent Pipeline",
     lifespan=lifespan,
 )
 
@@ -82,7 +74,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# ── In-memory document store (legacy compatibility) ─────────
+# ── In-memory document store ────────────────────────────────
 # Maps document_id -> {filename, text, pages, path}
 uploaded_documents = {}
 
@@ -184,391 +176,57 @@ async def register(req: RegisterRequest):
 
 
 # ══════════════════════════════════════════════════════════════
-# UPLOAD ENDPOINT — Enhanced for multi-format files
+# UPLOAD ENDPOINT (Doctor only)
 # ══════════════════════════════════════════════════════════════
 
 @app.post("/api/upload")
 async def upload_document(
     file: UploadFile = File(...),
-    auth_id: str = Form(None),
-    user=Depends(require_role(ROLE_PATIENT, ROLE_DOCTOR, ROLE_ADMIN)),
+    user=Depends(require_role(ROLE_DOCTOR, ROLE_ADMIN)),
 ):
-    """
-    Upload a document (PDF, image, DOCX).
-    Stores in Supabase Storage, runs OCR, saves metadata to DB.
-    """
-    # Validate file type
-    filename = file.filename or "unknown"
-    ext = os.path.splitext(filename)[1].lower()
-    if ext not in ALLOWED_EXTENSIONS:
-        raise HTTPException(
-            status_code=400,
-            detail=f"Unsupported file type '{ext}'. Allowed: {', '.join(ALLOWED_EXTENSIONS)}"
-        )
+    if not file.filename.lower().endswith(".pdf"):
+        raise HTTPException(status_code=400, detail="Only PDF files are supported")
 
     content = await file.read()
+    try:
+        pdf = PdfReader(io.BytesIO(content))
+        text = ""
+        for page in pdf.pages:
+            page_text = page.extract_text()
+            if page_text:
+                text += page_text + "\n"
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Could not read PDF: {str(e)}")
 
-    # Check file size
-    if len(content) > MAX_FILE_SIZE_MB * 1024 * 1024:
-        raise HTTPException(status_code=400, detail=f"File too large. Maximum size: {MAX_FILE_SIZE_MB}MB")
+    if not text.strip():
+        raise HTTPException(status_code=400, detail="PDF contains no extractable text")
 
-    file_type = ext.strip(".")
-    user_id = int(user["sub"])
-
-    # Generate auth_id if not provided
-    if not auth_id:
-        auth_id = f"AUTH-{datetime.datetime.now().strftime('%Y')}-{uuid.uuid4().hex[:5].upper()}"
-
-    # For backward compatibility: also extract PDF text for in-memory store
     doc_id = f"DOC-{uuid.uuid4().hex[:12].upper()}"
-    if file_type == "pdf":
-        try:
-            pdf = PdfReader(io.BytesIO(content))
-            text = ""
-            for page in pdf.pages:
-                page_text = page.extract_text()
-                if page_text:
-                    text += page_text + "\n"
-            uploaded_documents[doc_id] = {
-                "filename": filename,
-                "text": text,
-                "pages": len(pdf.pages),
-                "path": None,
-                "uploaded_by": user_id,
-                "uploaded_at": datetime.datetime.utcnow().isoformat(),
-            }
-        except Exception:
-            pass
 
-    # Process document: Upload → OCR → Structure → Save
-    db = SessionLocal()
-    try:
-        result = process_document(
-            auth_id=auth_id,
-            file_content=content,
-            filename=filename,
-            file_type=file_type,
-            uploaded_by=user_id,
-            uploader_role=user["role"],
-            db=db,
-        )
+    # Save file to disk
+    filepath = os.path.join(UPLOAD_DIR, f"{doc_id}.pdf")
+    with open(filepath, "wb") as f:
+        f.write(content)
 
-        result["legacy_document_id"] = doc_id
-        logger.info(f"Document uploaded: {result['document_id']} ({filename}, {file_type})")
-        return result
+    # Store in memory
+    uploaded_documents[doc_id] = {
+        "filename": file.filename,
+        "text": text,
+        "pages": len(pdf.pages),
+        "path": filepath,
+        "uploaded_by": int(user["sub"]),
+        "uploaded_at": datetime.datetime.utcnow().isoformat(),
+    }
 
-    except Exception as e:
-        logger.error(f"Upload failed: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"Upload processing error: {str(e)}")
-    finally:
-        db.close()
+    logger.info(f"Document uploaded: {doc_id} ({file.filename}, {len(pdf.pages)} pages)")
 
-
-# ══════════════════════════════════════════════════════════════
-# PROCESS ENDPOINT — Run OCR + structuring on existing document
-# ══════════════════════════════════════════════════════════════
-
-@app.post("/api/process")
-async def process_doc(
-    req: ProcessRequest,
-    user=Depends(require_role(ROLE_DOCTOR, ROLE_ADMIN)),
-):
-    """
-    Re-process an existing document: Run OCR, save text, generate structured data.
-    """
-    db = SessionLocal()
-    try:
-        doc = db.query(Document).filter(Document.id == req.document_id).first()
-        if not doc:
-            raise HTTPException(status_code=404, detail="Document not found")
-
-        # Re-run OCR if we have the file locally
-        if doc.file_url and doc.file_url.startswith("/uploads/"):
-            local_path = os.path.join(os.path.dirname(__file__), doc.file_url.lstrip("/"))
-            if os.path.exists(local_path):
-                with open(local_path, "rb") as f:
-                    content = f.read()
-                ocr_text = extract_text(content, doc.file_type or "pdf")
-                doc.ocr_text = ocr_text
-            else:
-                ocr_text = doc.ocr_text or ""
-        else:
-            ocr_text = doc.ocr_text or ""
-
-        # Re-structure via Gemini
-        if ocr_text and len(ocr_text.strip()) > 20:
-            structured = structure_ocr_output(ocr_text)
-            doc.structured_data = json.dumps(structured, default=str)
-        else:
-            structured = {}
-
-        db.commit()
-
-        return {
-            "document_id": doc.id,
-            "auth_id": doc.auth_id,
-            "ocr_text_preview": ocr_text[:500] + "..." if len(ocr_text) > 500 else ocr_text,
-            "ocr_text_length": len(ocr_text),
-            "structured_data": structured,
-            "status": "processed",
-        }
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Process failed: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"Processing error: {str(e)}")
-    finally:
-        db.close()
-
-
-# ══════════════════════════════════════════════════════════════
-# REPROCESS ENDPOINT — Re-run AI pipeline from stored data
-# ══════════════════════════════════════════════════════════════
-
-@app.post("/api/reprocess")
-async def reprocess_authorization(
-    req: ReprocessRequest,
-    user=Depends(require_role(ROLE_DOCTOR, ROLE_ADMIN)),
-):
-    """
-    Re-run the full 5-agent AI pipeline using stored document data
-    for a given authorization. Useful after new documents are uploaded.
-    """
-    user_id = int(user["sub"])
-    db = SessionLocal()
-    try:
-        # Get the authorization
-        auth = db.query(Authorization).filter(Authorization.auth_id == req.auth_id).first()
-        if not auth:
-            raise HTTPException(status_code=404, detail="Authorization not found")
-
-        # Get combined text from all documents
-        combined_text = get_combined_text_for_auth(req.auth_id, db)
-        if not combined_text or len(combined_text.strip()) < 20:
-            raise HTTPException(status_code=400, detail="No document text available for reprocessing")
-
-        # Also get any structured data
-        combined_structured = get_combined_structured_data(req.auth_id, db)
-
-        # Run the pipeline (reusing the analysis logic)
-        filename = auth.filename or "reprocessed"
-        text = combined_text
-
-        pipeline_state = {
-            "clinical_reader": "pending",
-            "evidence_builder": "pending",
-            "policy_intelligence": "pending",
-            "risk_prediction": "pending",
-            "submission": "pending",
-            "appeal": "pending",
-        }
-
-        # ── AGENT 1: Clinical Reader ───────────────────────
-        pipeline_state["clinical_reader"] = "running"
-        log_agent_event(req.auth_id, "Clinical Reader", "extract_clinical_data", "started", user_id=user_id)
-
-        t0 = time.time()
-        clinical_data = extract_clinical_data(text)
-        t1 = time.time()
-
-        # Merge with any structured data from documents
-        if combined_structured:
-            for key, value in combined_structured.items():
-                if key.startswith("_"):
-                    continue
-                if not clinical_data.get(key) or clinical_data.get(key) in ("Unknown", "N/A", ""):
-                    clinical_data[key] = value
-
-        completeness = validate_clinical_completeness(clinical_data)
-
-        pipeline_state["clinical_reader"] = "completed"
-        log_agent_event(req.auth_id, "Clinical Reader", "extract_clinical_data", "completed",
-                       output_summary=f"Patient: {clinical_data.get('patient_name','?')}, Dx: {clinical_data.get('diagnosis','?')}",
-                       duration_ms=int((t1-t0)*1000), user_id=user_id)
-
-        missing_fields = completeness.get("missing_fields", [])
-
-        # ── AGENT 2: Evidence Builder ──────────────────────
-        pipeline_state["evidence_builder"] = "running"
-        log_agent_event(req.auth_id, "Evidence Builder", "validate_evidence", "started", user_id=user_id)
-
-        t0 = time.time()
-        evidence_data = validate_evidence(clinical_data, text)
-        t1 = time.time()
-
-        pipeline_state["evidence_builder"] = "completed"
-        log_agent_event(req.auth_id, "Evidence Builder", "validate_evidence", "completed",
-                       output_summary=f"Score: {evidence_data.get('evidence_score',0)}, DxSupported: {evidence_data.get('diagnosis_supported', False)}",
-                       duration_ms=int((t1-t0)*1000), user_id=user_id)
-
-        # ── AGENT 3: Policy Intelligence ───────────────────
-        pipeline_state["policy_intelligence"] = "running"
-        log_agent_event(req.auth_id, "Policy Intelligence", "compare_against_policy", "started", user_id=user_id)
-
-        t0 = time.time()
-        policy_data = compare_against_policy(clinical_data, evidence_data)
-        t1 = time.time()
-
-        pipeline_state["policy_intelligence"] = "completed"
-        log_agent_event(req.auth_id, "Policy Intelligence", "compare_against_policy", "completed",
-                       output_summary=f"Match: {policy_data.get('policy_match', False)}, Coverage: {policy_data.get('coverage_status','?')}",
-                       duration_ms=int((t1-t0)*1000), user_id=user_id)
-
-        # ── AGENT 4: Risk Prediction ──────────────────────
-        pipeline_state["risk_prediction"] = "running"
-        log_agent_event(req.auth_id, "Risk Prediction", "predict_approval", "started", user_id=user_id)
-
-        t0 = time.time()
-        risk_data = predict_approval(clinical_data, evidence_data, policy_data)
-        t1 = time.time()
-
-        pipeline_state["risk_prediction"] = "completed"
-        log_agent_event(req.auth_id, "Risk Prediction", "predict_approval", "completed",
-                       output_summary=f"Probability: {risk_data.get('approval_probability',0):.2%}, Category: {risk_data.get('risk_category','?')}",
-                       duration_ms=int((t1-t0)*1000), user_id=user_id)
-
-        approval_probability = risk_data.get("approval_probability", 0)
-        confidence_score = int(approval_probability * 100)
-
-        # ── Decision Routing ──────────────────────────────
-        all_missing = missing_fields + evidence_data.get("missing_documents", []) + policy_data.get("violations", [])
-
-        if completeness.get("completeness_score", 0) < 40 or len(missing_fields) >= 3:
-            status = "INCOMPLETE"
-            explanation = f"Insufficient clinical data. Missing: {', '.join(missing_fields)}. Manual review required."
-            pipeline_state["submission"] = "skipped"
-            pipeline_state["appeal"] = "skipped"
-            log_agent_event(req.auth_id, "Orchestrator", "decision_routing", "completed",
-                           output_summary=f"Status: INCOMPLETE — missing {len(missing_fields)} fields", user_id=user_id)
-        elif approval_probability >= 0.60 and policy_data.get("policy_match", False):
-            status = "APPROVED"
-            explanation = risk_data.get("explanation", "Authorization approved based on clinical evidence and policy compliance.")
-
-            # ── AGENT 5a: Submission ──────────────────────
-            pipeline_state["submission"] = "running"
-            log_agent_event(req.auth_id, "Submission Agent", "generate_fhir_bundle", "started", user_id=user_id)
-
-            t0 = time.time()
-            submission_data = generate_fhir_bundle(clinical_data, evidence_data, policy_data, risk_data, req.auth_id)
-            t1 = time.time()
-
-            pipeline_state["submission"] = "completed"
-            pipeline_state["appeal"] = "not_needed"
-            log_agent_event(req.auth_id, "Submission Agent", "generate_fhir_bundle", "completed",
-                           output_summary=f"Bundle generated with {submission_data.get('resource_count', 0)} resources",
-                           duration_ms=int((t1-t0)*1000), user_id=user_id)
-        else:
-            status = "DENIED"
-            explanation = risk_data.get("explanation", "Authorization denied due to policy non-compliance or insufficient evidence.")
-            pipeline_state["submission"] = "not_applicable"
-
-            # ── AGENT 5b: Appeal ──────────────────────────
-            pipeline_state["appeal"] = "running"
-            log_agent_event(req.auth_id, "Appeal Agent", "generate_appeal", "started", user_id=user_id)
-
-            t0 = time.time()
-            denial_reasons = policy_data.get("violations", []) + evidence_data.get("missing_documents", [])
-            appeal_data = generate_appeal(clinical_data, evidence_data, policy_data, risk_data, denial_reasons, req.auth_id)
-            t1 = time.time()
-
-            pipeline_state["appeal"] = "completed"
-            log_agent_event(req.auth_id, "Appeal Agent", "generate_appeal", "completed",
-                           output_summary=f"Appeal generated, strength: {appeal_data.get('appeal_strength','?')}",
-                           duration_ms=int((t1-t0)*1000), user_id=user_id)
-
-        # ── Build final result ─────────────────────────────
-        audit_trail = build_audit_trail_for_auth(req.auth_id)
-
-        result = {
-            "authorization_id": req.auth_id,
-            "status": status,
-            "approval_probability": approval_probability,
-            "confidence_score": confidence_score,
-            "explanation": explanation,
-            "missing_fields": missing_fields,
-            "timestamp": datetime.datetime.utcnow().isoformat(),
-            "pipeline_summary": f"Document reprocessed through {sum(1 for v in pipeline_state.values() if v == 'completed')} AI agent nodes.",
-            "pipeline_state": pipeline_state,
-            "details": {
-                "clinical_data": clinical_data,
-                "evidence_data": evidence_data,
-                "policy_data": policy_data,
-                "risk_prediction": risk_data,
-                "submission": submission_data if status == "APPROVED" else None,
-                "appeal": appeal_data if status == "DENIED" else None,
-            },
-            "audit_trail": audit_trail,
-            "reprocessed": True,
-        }
-
-        # Update authorization record
-        auth.status = status
-        auth.patient_name = clinical_data.get("patient_name", "Unknown")
-        auth.approval_probability = approval_probability
-        auth.confidence_score = confidence_score
-        auth.result_data = json.dumps(result, default=str)
-        auth.pipeline_state = json.dumps(pipeline_state)
-        auth.missing_fields = json.dumps(missing_fields)
-        if status == "APPROVED" and 'submission_data' in dir():
-            auth.fhir_bundle = json.dumps(submission_data, default=str)
-        if status == "DENIED" and 'appeal_data' in dir():
-            auth.appeal_data = json.dumps(appeal_data, default=str)
-        db.commit()
-
-        logger.info(f"Reprocess complete: {req.auth_id} → {status} ({confidence_score}%)")
-        return result
-
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Reprocess error: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"Reprocessing error: {str(e)}")
-    finally:
-        db.close()
-
-
-# ══════════════════════════════════════════════════════════════
-# DOCUMENT MANAGEMENT ENDPOINTS
-# ══════════════════════════════════════════════════════════════
-
-@app.get("/api/documents/{auth_id}")
-async def get_documents(
-    auth_id: str,
-    user=Depends(get_current_user),
-):
-    """Get all documents for an authorization with file URLs, OCR previews, verification status."""
-    db = SessionLocal()
-    try:
-        # Role-based access: patients see own, doctors see assigned, admin sees all
-        if user["role"] == ROLE_PATIENT:
-            auth = db.query(Authorization).filter(Authorization.auth_id == auth_id).first()
-            if auth and auth.user_id != int(user["sub"]):
-                raise HTTPException(status_code=403, detail="Access denied")
-
-        documents = get_documents_for_auth(auth_id, db)
-        return {
-            "auth_id": auth_id,
-            "document_count": len(documents),
-            "documents": documents,
-        }
-    finally:
-        db.close()
-
-
-@app.post("/api/documents/verify")
-async def verify_doc(
-    req: VerifyDocumentRequest,
-    user=Depends(require_role(ROLE_DOCTOR, ROLE_ADMIN)),
-):
-    """Mark a document as verified by a doctor or admin."""
-    db = SessionLocal()
-    try:
-        result = verify_document(req.document_id, db)
-        if "error" in result:
-            raise HTTPException(status_code=404, detail=result["error"])
-        return result
-    finally:
-        db.close()
+    return {
+        "document_id": doc_id,
+        "filename": file.filename,
+        "text_preview": text[:300] + "..." if len(text) > 300 else text,
+        "page_count": len(pdf.pages),
+        "character_count": len(text),
+    }
 
 
 # ══════════════════════════════════════════════════════════════
@@ -766,7 +424,6 @@ async def analyze_document(
         auth_record.confidence_score = confidence_score
         auth_record.result_data = json.dumps(result, default=str)
         auth_record.pipeline_state = json.dumps(pipeline_state)
-        auth_record.missing_fields = json.dumps(missing_fields)
         if status == "APPROVED" and 'submission_data' in dir():
             auth_record.fhir_bundle = json.dumps(submission_data, default=str)
         if status == "DENIED" and 'appeal_data' in dir():
@@ -987,7 +644,7 @@ async def get_history(limit: int = Query(50), user=Depends(get_current_user)):
         query = db.query(Authorization).order_by(Authorization.created_at.desc())
 
         # Role-based filtering
-        if user["role"] in (ROLE_DOCTOR, ROLE_PATIENT):
+        if user["role"] == ROLE_DOCTOR:
             query = query.filter(Authorization.user_id == int(user["sub"]))
         # Insurance and admin see all
 
@@ -1016,8 +673,8 @@ async def get_history_detail(auth_id: str, user=Depends(get_current_user)):
         if not auth:
             raise HTTPException(status_code=404, detail="Authorization not found")
 
-        # Doctor/patient can only see own records
-        if user["role"] in (ROLE_DOCTOR, ROLE_PATIENT) and auth.user_id != int(user["sub"]):
+        # Doctor can only see own records
+        if user["role"] == ROLE_DOCTOR and auth.user_id != int(user["sub"]):
             raise HTTPException(status_code=403, detail="Access denied")
 
         return json.loads(auth.result_data) if auth.result_data else {"authorization_id": auth_id, "status": auth.status}
@@ -1043,7 +700,7 @@ async def dashboard_metrics(user=Depends(get_current_user)):
     db = SessionLocal()
     try:
         query = db.query(Authorization)
-        if user["role"] in (ROLE_DOCTOR, ROLE_PATIENT):
+        if user["role"] == ROLE_DOCTOR:
             query = query.filter(Authorization.user_id == int(user["sub"]))
 
         all_auths = query.all()
@@ -1124,7 +781,6 @@ async def health():
         "service": APP_NAME,
         "version": APP_VERSION,
         "timestamp": datetime.datetime.utcnow().isoformat(),
-        "database": "PostgreSQL (Supabase)" if not DATABASE_URL.startswith("sqlite") else "SQLite (local)",
     }
 
 @app.get("/")
