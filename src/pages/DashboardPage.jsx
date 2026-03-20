@@ -1,5 +1,5 @@
 import React, { useEffect } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, Navigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import useStore from '../store/useStore';
 import { motion } from 'framer-motion';
@@ -13,7 +13,14 @@ export default function DashboardPage() {
     const { user } = useAuth();
     const { dashboardMetrics, dashboardLoading, fetchDashboard } = useStore();
 
-    useEffect(() => { fetchDashboard(); }, []);
+    useEffect(() => {
+        if (user?.role === 'doctor' || user?.role === 'admin') {
+            fetchDashboard();
+        }
+    }, [user?.role]);
+
+    if (user?.role === 'patient') return <Navigate to="/patient" replace />;
+    if (user?.role === 'insurance') return <Navigate to="/insurance" replace />;
 
     const m = dashboardMetrics || {};
     const cards = [

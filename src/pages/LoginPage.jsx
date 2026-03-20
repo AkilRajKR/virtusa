@@ -117,6 +117,7 @@ export default function LoginPage() {
                                     className="w-full px-4 py-3 bg-slate-800/50 border border-slate-700 rounded-xl text-white focus:outline-none focus:border-cyan-500 transition-all"
                                 >
                                     <option value="doctor">Doctor (Healthcare Provider)</option>
+                                    <option value="patient">Patient</option>
                                     <option value="insurance">Insurance (Payer)</option>
                                     <option value="admin">Admin (System Auditor)</option>
                                 </select>
@@ -151,17 +152,21 @@ export default function LoginPage() {
                     {!isRegister && (
                         <div className="mt-6 pt-6 border-t border-slate-800">
                             <p className="text-xs text-slate-500 uppercase tracking-wider font-bold mb-3 text-center">Demo Quick Login</p>
-                            <div className="grid grid-cols-3 gap-2">
+                            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
                                 <button onClick={() => quickLogin('doctor@surecare.ai', 'demo123')}
-                                    className="px-3 py-2.5 bg-emerald-500/10 border border-emerald-500/20 rounded-xl text-emerald-400 text-xs font-bold hover:bg-emerald-500/20 transition-all">
+                                    className="px-2 py-2 bg-emerald-500/10 border border-emerald-500/20 rounded-xl text-emerald-400 text-xs font-bold hover:bg-emerald-500/20 transition-all text-center">
                                     🩺 Doctor
                                 </button>
+                                <button onClick={() => quickLogin('patient@surecare.ai', 'demo123')}
+                                    className="px-2 py-2 bg-cyan-500/10 border border-cyan-500/20 rounded-xl text-cyan-400 text-xs font-bold hover:bg-cyan-500/20 transition-all text-center">
+                                    👤 Patient
+                                </button>
                                 <button onClick={() => quickLogin('insurance@surecare.ai', 'demo123')}
-                                    className="px-3 py-2.5 bg-blue-500/10 border border-blue-500/20 rounded-xl text-blue-400 text-xs font-bold hover:bg-blue-500/20 transition-all">
+                                    className="px-2 py-2 bg-blue-500/10 border border-blue-500/20 rounded-xl text-blue-400 text-xs font-bold hover:bg-blue-500/20 transition-all text-center">
                                     🏛️ Insurance
                                 </button>
                                 <button onClick={() => quickLogin('admin@surecare.ai', 'admin123')}
-                                    className="px-3 py-2.5 bg-purple-500/10 border border-purple-500/20 rounded-xl text-purple-400 text-xs font-bold hover:bg-purple-500/20 transition-all">
+                                    className="px-2 py-2 bg-purple-500/10 border border-purple-500/20 rounded-xl text-purple-400 text-xs font-bold hover:bg-purple-500/20 transition-all text-center">
                                     ⚙️ Admin
                                 </button>
                             </div>

@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import { Sidebar } from '../components/layout/Sidebar';
 import { Topbar } from '../components/layout/Topbar';
 import { GlassCard } from '../components/ui/GlassCard';
@@ -8,6 +8,7 @@ import {
 } from 'recharts';
 import { TrendingUp, Clock, DollarSign, CheckCircle, Activity, Users } from 'lucide-react';
 import { motion } from 'framer-motion';
+import surecareService from '../services/surecare.service';
 
 // ── Static mock data (no backend) ─────────────────────────────────────────
 const STATS = {
@@ -64,6 +65,20 @@ const CustomTooltip = ({ active, payload, label }) => {
 };
 
 export default function AdminDashboard() {
+    const [users, setUsers] = useState([]);
+    
+    useEffect(() => {
+        const fetchUsers = async () => {
+            try {
+                const data = await surecareService.getAdminUsers();
+                setUsers(data);
+            } catch (e) {
+                console.error("Failed to fetch users", e);
+            }
+        };
+        fetchUsers();
+    }, []);
+
     const statCards = [
         { label: 'Total Requests', value: STATS.total_requests.toLocaleString(), change: '+12%', icon: Activity, color: 'cyan' },
         { label: 'Approval Rate', value: `${STATS.approval_rate}%`, change: '+3%', icon: CheckCircle, color: 'emerald' },
@@ -201,6 +216,48 @@ export default function AdminDashboard() {
                                 </GlassCard>
                             ))}
                         </div>
+
+                        {/* Recent Users List */}
+                        <GlassCard>
+                            <h3 className="text-xl font-semibold mb-6 flex items-center gap-2">
+                                <Users className="h-5 w-5 text-indigo-400" />
+                                System Users Directory
+                            </h3>
+                            <div className="overflow-x-auto">
+                                <table className="w-full text-left">
+                                    <thead>
+                                        <tr className="border-b border-slate-800 text-slate-500 text-sm uppercase tracking-wider">
+                                            <th className="pb-3 px-4 font-semibold">Name</th>
+                                            <th className="pb-3 px-4 font-semibold">Email</th>
+                                            <th className="pb-3 px-4 font-semibold">Role</th>
+                                            <th className="pb-3 px-4 font-semibold">Status</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody className="text-sm">
+                                        {users.length === 0 ? (
+                                            <tr><td colSpan="4" className="py-8 text-center text-slate-500">Loading users...</td></tr>
+                                        ) : (
+                                            users.map(u => (
+                                                <tr key={u.id} className="border-b border-slate-800/50 hover:bg-slate-800/30 transition-colors">
+                                                    <td className="py-4 px-4 font-medium text-slate-200">{u.name}</td>
+                                                    <td className="py-4 px-4 text-slate-400">{u.email}</td>
+                                                    <td className="py-4 px-4">
+                                                        <span className="px-2.5 py-1 bg-slate-800 border border-slate-700 rounded-lg text-xs font-bold uppercase tracking-wider text-slate-300">
+                                                            {u.role}
+                                                        </span>
+                                                    </td>
+                                                    <td className="py-4 px-4">
+                                                        {u.is_active 
+                                                            ? <span className="text-emerald-400 flex items-center gap-1.5"><div className="h-2 w-2 rounded-full bg-emerald-500"></div> Active</span>
+                                                            : <span className="text-slate-500 flex items-center gap-1.5"><div className="h-2 w-2 rounded-full bg-slate-600"></div> Inactive</span>}
+                                                    </td>
+                                                </tr>
+                                            ))
+                                        )}
+                                    </tbody>
+                                </table>
+                            </div>
+                        </GlassCard>
                     </motion.div>
                 </main>
             </div>

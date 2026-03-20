@@ -9,8 +9,10 @@ import {
 
 const NAV_ITEMS = [
     { path: '/dashboard', label: 'Dashboard', icon: LayoutDashboard, roles: ['doctor', 'insurance', 'admin'] },
-    { path: '/upload', label: 'New Analysis', icon: Upload, roles: ['doctor', 'admin'] },
-    { path: '/history', label: 'History', icon: History, roles: ['doctor', 'insurance', 'admin'] },
+    { path: '/patient', label: 'My Cases', icon: LayoutDashboard, roles: ['patient'] },
+    { path: '/doctor/cases', label: 'My Cases', icon: Upload, roles: ['doctor', 'admin'] },
+    { path: '/insurance', label: 'Review Queue', icon: Shield, roles: ['insurance'] },
+    { path: '/history', label: 'History', icon: History, roles: ['patient', 'doctor', 'insurance', 'admin'] },
     { path: '/audit', label: 'Audit Trail', icon: Clock, roles: ['admin', 'insurance'] },
 ];
 
@@ -24,6 +26,7 @@ export default function Navbar() {
     const filtered = NAV_ITEMS.filter(item => item.roles.includes(user?.role));
 
     const roleTag = {
+        patient: { label: 'PATIENT', color: 'text-cyan-400 bg-cyan-500/10 border-cyan-500/20' },
         doctor: { label: 'DOCTOR', color: 'text-emerald-400 bg-emerald-500/10 border-emerald-500/20' },
         insurance: { label: 'INSURANCE', color: 'text-blue-400 bg-blue-500/10 border-blue-500/20' },
         admin: { label: 'ADMIN', color: 'text-purple-400 bg-purple-500/10 border-purple-500/20' },
@@ -44,7 +47,8 @@ export default function Navbar() {
                     {/* Desktop Nav */}
                     <div className="hidden md:flex items-center gap-1">
                         {filtered.map(item => {
-                            const active = location.pathname === item.path;
+                            // Check if current path starts with item path, except for exact matches needed for /dashboard vs /patient
+                            const active = location.pathname.startsWith(item.path) && (item.path !== '/' || location.pathname === '/');
                             return (
                                 <Link key={item.path} to={item.path}
                                     className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all relative ${

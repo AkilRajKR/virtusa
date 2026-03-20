@@ -9,16 +9,11 @@ export const AuthProvider = ({ children }) => {
     const [error, setError] = useState(null);
 
     useEffect(() => {
-        // Restore session from localStorage
         const token = localStorage.getItem('surecare_token');
         const savedUser = localStorage.getItem('surecare_user');
         if (token && savedUser) {
-            try {
-                setUser(JSON.parse(savedUser));
-            } catch {
-                localStorage.removeItem('surecare_token');
-                localStorage.removeItem('surecare_user');
-            }
+            try { setUser(JSON.parse(savedUser)); }
+            catch { localStorage.removeItem('surecare_token'); localStorage.removeItem('surecare_user'); }
         }
         setLoading(false);
     }, []);
@@ -62,16 +57,17 @@ export const AuthProvider = ({ children }) => {
     }, []);
 
     const isAuthenticated = !!user;
-    const isDoctor = user?.role === 'doctor';
+    const isPatient   = user?.role === 'patient';
+    const isDoctor    = user?.role === 'doctor';
     const isInsurance = user?.role === 'insurance';
-    const isAdmin = user?.role === 'admin';
-    const hasRole = useCallback((role) => user?.role === role, [user]);
+    const isAdmin     = user?.role === 'admin';
+    const hasRole     = useCallback((role) => user?.role === role, [user]);
 
     return (
         <AuthContext.Provider value={{
             user, isAuthenticated, loading, error,
             login, register, logout,
-            isDoctor, isInsurance, isAdmin, hasRole,
+            isPatient, isDoctor, isInsurance, isAdmin, hasRole,
         }}>
             {!loading && children}
         </AuthContext.Provider>
